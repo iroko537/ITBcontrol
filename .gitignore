@@ -4,3 +4,4 @@ __pycache__/
 state.json
 action.json
 .env
+ITBcontrol_log/**/*.png

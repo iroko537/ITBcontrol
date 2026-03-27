@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from logger import ITBLogger
+
 # ── Config ──────────────────────────────────────────────────────────────────
 
 DEFAULT_GAME_DIR = Path("/home/iroko/Games/Heroic/IntoTheBreach")
@@ -131,7 +133,7 @@ Think step by step:
 
 Output ONLY the JSON action, no explanation."""
 
-def get_llm_action(state: dict, client, model: str) -> dict:
+def get_llm_action(state: dict, client, model: str, logger: "ITBLogger" = None) -> dict:
     board_str = render_board(state)
     pawn_str  = describe_pawns(state)
     power     = state.get("power_grid", "?")
@@ -147,6 +149,7 @@ UNITS:
 
 What is your action?"""
 
+    inputs = {"model": model, "turn": state.get("turn"), "prompt_len": len(prompt)}
     try:
         response = client.messages.create(
             model=model,
@@ -160,9 +163,20 @@ What is your action?"""
         start = raw.find("{")
         end   = raw.rfind("}") + 1
         if start >= 0 and end > start:
-            return json.loads(raw[start:end])
+            action = json.loads(raw[start:end])
+            if logger:
+                logger.log_tool_call("llm_call", inputs, result=action)
+                logger.log_event("llm_decision", {
+                    "action_type": action.get("type"),
+                    "from": action.get("from"),
+                    "to":   action.get("to"),
+                    "raw":  raw[:200],
+                })
+            return action
     except Exception as e:
         print(f"[agent] LLM error: {e}")
+        if logger:
+            logger.log_tool_call("llm_call", inputs, error=e)
 
     return {"type": "wait"}
 
@@ -234,42 +248,78 @@ def main():
     last_turn = -1
     win_id    = None
 
+    # Init logger
+    logger = ITBLogger()
+
     print("[agent] Waiting for game state...")
+    logger.log_event("agent_start", {"model": args.model, "game_dir": str(game_dir), "dry_run": args.dry_run})
 
-    while True:
-        state = read_state(game_dir)
+    try:
+        # Find game window and take BEFORE screenshot
+        win_id = find_game_window()
+        logger.log_tool_call("find_game_window", {}, result=win_id)
+        logger.screenshot("before_session", win_id)
 
-        if state is None:
+        while True:
+            state = read_state(game_dir)
+
+            if state is None:
+                time.sleep(POLL_INTERVAL)
+                continue
+
+            turn = state.get("turn", -1)
+            if turn == last_turn:
+                time.sleep(POLL_INTERVAL)
+                continue
+
+            last_turn = turn
+            print(f"\n[agent] === Turn {turn} ===")
+            print(render_board(state))
+            print(describe_pawns(state))
+
+            # Log turn start
+            logger.log_event("turn_start", {
+                "turn":           turn,
+                "pawn_count":     len(state.get("pawns", [])),
+                "building_count": len(state.get("buildings", [])),
+                "power_grid":     state.get("power_grid"),
+                "board":          render_board(state),
+            })
+
+            # Screenshot at start of turn
+            logger.screenshot(f"turn_{turn:03d}_before", win_id)
+
+            # Get LLM decision
+            action = get_llm_action(state, client, args.model, logger)
+            print(f"[agent] Decision: {action}")
+
+            if not args.dry_run:
+                write_action(game_dir, action)
+                logger.log_tool_call("write_action", {"path": str(game_dir / ACTION_FILE)}, result=action)
+                logger.log_event("action_written", {"action": action})
+
+                # If end_turn, also simulate UI click
+                if action.get("type") == "end_turn":
+                    time.sleep(0.5)
+                    click_end_turn(win_id)
+                    logger.log_tool_call("click_end_turn", {"win_id": win_id})
+
+            # Screenshot after action
+            time.sleep(0.8)
+            logger.screenshot(f"turn_{turn:03d}_after", win_id)
+
             time.sleep(POLL_INTERVAL)
-            continue
 
-        turn = state.get("turn", -1)
-        if turn == last_turn:
-            time.sleep(POLL_INTERVAL)
-            continue
-
-        last_turn = turn
-        print(f"\n[agent] === Turn {turn} ===")
-        print(render_board(state))
-        print(describe_pawns(state))
-
-        # Find game window once
-        if win_id is None:
-            win_id = find_game_window()
-
-        # Get LLM decision
-        action = get_llm_action(state, client, args.model)
-        print(f"[agent] Decision: {action}")
-
-        if not args.dry_run:
-            write_action(game_dir, action)
-
-            # If end_turn, also simulate UI click
-            if action.get("type") == "end_turn":
-                time.sleep(0.5)
-                click_end_turn(win_id)
-
-        time.sleep(POLL_INTERVAL)
+    except KeyboardInterrupt:
+        print("\n[agent] Interrupted.")
+        # Take final screenshot
+        logger.screenshot("after_session", win_id)
+        logger.close(outcome="interrupted")
+    except Exception as e:
+        logger.log_tool_call("agent_loop", {}, error=e)
+        logger.screenshot("after_session_error", win_id)
+        logger.close(outcome=f"error: {e}")
+        raise
 
 if __name__ == "__main__":
     main()
