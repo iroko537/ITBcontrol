@@ -1,0 +1,2 @@
+{"ts": "2026-03-28T16:29:09.260903", "type": "agent_start", "data": {"model": "kimi-turbo", "game_dir": "/home/iroko/Games/Heroic/IntoTheBreach", "dry_run": true}}
+{"ts": "2026-03-28T16:29:09.280498", "type": "turn_start", "data": {"turn": 0, "pawn_count": 0, "building_count": 8, "power_grid": null, "board": "  01234567\n7 ........\n6 B...B...\n5 B...B...\n4 ........\n3 .B......\n2 .B......\n1 ...BB...\n0 ........"}}

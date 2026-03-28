@@ -153,7 +153,7 @@ What is your action?"""
     try:
         response = client.messages.create(
             model=model,
-            max_tokens=200,
+            max_tokens=512,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -232,8 +232,6 @@ def main():
     parser.add_argument("--game-dir", default=str(DEFAULT_GAME_DIR))
     parser.add_argument("--model",    default="claude-haiku-4-5")
     parser.add_argument("--dry-run",  action="store_true")
-    parser.add_argument("--api-key",  default=os.environ.get("ANTHROPIC_API_KEY") or
-                                               os.environ.get("OPENROUTER_API_KEY", ""))
     args = parser.parse_args()
 
     game_dir = Path(args.game_dir)
@@ -241,9 +239,15 @@ def main():
     print(f"[agent] Model: {args.model}")
     print(f"[agent] Dry run: {args.dry_run}")
 
-    # Set up Anthropic client
-    import anthropic
-    client = anthropic.Anthropic(api_key=args.api_key)
+    # Set up LLM client via hermes' Anthropic adapter (supports OAuth tokens)
+    sys.path.insert(0, "/home/iroko/.hermes/hermes-agent")
+    from agent.anthropic_adapter import build_anthropic_client, resolve_anthropic_token
+    token = resolve_anthropic_token()
+    if not token:
+        print("[agent] ERROR: No Anthropic token found. Check ~/.hermes/.env")
+        sys.exit(1)
+    client = build_anthropic_client(token)
+    use_anthropic = True  # flag for API format
 
     last_turn = -1
     win_id    = None

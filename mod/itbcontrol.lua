@@ -7,15 +7,20 @@
 --   2. Reads action.json written by the Python agent
 --   3. Executes the action via SkillEffect
 
-local WORKING_DIR = GetWorkingDir()
-local STATE_FILE  = WORKING_DIR .. "itbcontrol_state.json"
-local ACTION_FILE = WORKING_DIR .. "itbcontrol_action.json"
-local LOG_FILE    = WORKING_DIR .. "itbcontrol.log"
+local function get_dir()
+    local d = GetWorkingDir()
+    if d and d ~= "" then return d end
+    return ""
+end
+
+local function STATE_FILE()  return get_dir() .. "itbcontrol_state.json" end
+local function ACTION_FILE() return get_dir() .. "itbcontrol_action.json" end
+local function LOG_FILE()    return get_dir() .. "itbcontrol.log" end
 
 -- ── Helpers ────────────────────────────────────────────────────────────────
 
 local function log(msg)
-    local f = io.open(LOG_FILE, "a")
+    local f = io.open(LOG_FILE(), "a")
     if f then f:write("[ITBcontrol] " .. tostring(msg) .. "\n"); f:close() end
 end
 
@@ -85,70 +90,85 @@ local function pawn_to_table(pawn, point)
 end
 
 local function dump_state()
-    local size = Board:GetSize()
+    log("dump_state called")
+
+    -- step 1: board size
+    local size
+    local ok, err = pcall(function() size = Board:GetSize() end)
+    if not ok then log("ERROR GetSize: " .. tostring(err)); return end
+    log("board size: " .. tostring(size.x) .. "x" .. tostring(size.y))
+
+    -- step 2: build state table (safe getters)
+    local turn = 0
+    pcall(function() turn = Game:GetTurnCount() end)
+
     local state = {
-        turn     = Game and Game:GetTurnCount() or 0,
-        island   = Game and Game:GetIsland() or 0,
-        sector   = Game and Game:GetSector() or 0,
-        board_w  = size.x,
-        board_h  = size.y,
-        power_grid = Game and Game:GetPower() or 0,
-        tiles    = {},
-        pawns    = {},
+        turn      = turn,
+        board_w   = size.x,
+        board_h   = size.y,
+        tiles     = {},
+        pawns     = {},
         buildings = {},
     }
 
-    -- iterate all tiles
-    for x = 0, size.x - 1 do
-        for y = 0, size.y - 1 do
-            local p = Point(x, y)
-            local tile = {
-                x = x, y = y,
-                terrain   = Board:GetTerrain(p),
-                is_wall   = Board:IsWall(p),
-                is_hole   = Board:IsTerrain(p) and Board:GetTerrain(p) == TERRAIN_HOLE or false,
-                is_water  = Board:GetTerrain(p) == TERRAIN_WATER or false,
-                is_fire   = Board:IsFire(p),
-                is_frozen = Board:IsFrozen(p),
-                is_acid   = Board:IsAcid(p),
-                is_smoke  = Board:IsSmoke(p),
-                is_danger = Board:IsDangerous(p),
-                is_building = Board:IsBuilding(p),
-                is_pawn   = Board:IsPawnSpace(p),
-                pawn_team = Board:GetPawnTeam(p),
-            }
-            state.tiles[#state.tiles+1] = tile
-        end
-    end
-
-    -- pawns by team
-    local teams = {TEAM_PLAYER, TEAM_ENEMY, TEAM_MECH}
-    for _, team in ipairs(teams) do
-        local pawn_list = Board:GetPawns(team)
-        if pawn_list then
-            for i = 1, pawn_list:size() do
-                local pawn = pawn_list:index(i)
-                local pt   = pawn:GetSpace()
-                local pd   = pawn_to_table(pawn, pt)
-                if pd then state.pawns[#state.pawns+1] = pd end
+    -- step 3: tiles
+    local tok, terr = pcall(function()
+        for x = 0, size.x - 1 do
+            for y = 0, size.y - 1 do
+                local p = Point(x, y)
+                state.tiles[#state.tiles+1] = {
+                    x = x, y = y,
+                    terrain     = Board:GetTerrain(p),
+                    is_fire     = Board:IsFire(p),
+                    is_frozen   = Board:IsFrozen(p),
+                    is_acid     = Board:IsAcid(p),
+                    is_building = Board:IsBuilding(p),
+                }
             end
         end
-    end
+    end)
+    if not tok then log("ERROR tiles: " .. tostring(terr)); return end
+    log("tiles ok: " .. tostring(#state.tiles))
 
-    -- buildings
-    local bldgs = Board:GetBuildings()
-    if bldgs then
-        for i = 1, bldgs:size() do
-            local pt = bldgs:index(i)
-            state.buildings[#state.buildings+1] = {
-                x = pt.x, y = pt.y,
-                damaged = Board:IsDamaged(pt),
-            }
+    -- step 4: pawns
+    local pok, perr = pcall(function()
+        local teams = {TEAM_PLAYER, TEAM_ENEMY, TEAM_MECH}
+        for _, team in ipairs(teams) do
+            local pawn_list = Board:GetPawns(team)
+            if pawn_list then
+                for i = 1, pawn_list:size() do
+                    local pawn = pawn_list:index(i)
+                    local pt   = pawn:GetSpace()
+                    local pd   = pawn_to_table(pawn, pt)
+                    if pd then state.pawns[#state.pawns+1] = pd end
+                end
+            end
         end
-    end
+    end)
+    if not pok then log("ERROR pawns: " .. tostring(perr)); return end
+    log("pawns ok: " .. tostring(#state.pawns))
 
-    write_file(STATE_FILE, json_val(state))
-    log("State dumped, turn=" .. tostring(state.turn))
+    -- step 5: buildings
+    pcall(function()
+        local bldgs = Board:GetBuildings()
+        if bldgs then
+            for i = 1, bldgs:size() do
+                local pt = bldgs:index(i)
+                state.buildings[#state.buildings+1] = {
+                    x = pt.x, y = pt.y,
+                    damaged = Board:IsDamaged(pt),
+                }
+            end
+        end
+    end)
+
+    -- step 6: write
+    local wok, werr = pcall(function() write_file(STATE_FILE(), json_val(state)) end)
+    if wok then
+        log("State dumped OK, turn=" .. tostring(state.turn))
+    else
+        log("ERROR write_file: " .. tostring(werr))
+    end
 end
 
 -- ── Action executor ────────────────────────────────────────────────────────
@@ -159,7 +179,7 @@ end
 --   {"type": "wait"}
 
 local function execute_action()
-    local raw = read_file(ACTION_FILE)
+    local raw = read_file(ACTION_FILE())
     if not raw or raw == "" then return end
 
     -- very simple JSON key extraction
@@ -207,27 +227,28 @@ local function execute_action()
         log("Wait action - no move")
     end
 
-    delete_file(ACTION_FILE)
+    delete_file(ACTION_FILE())
 end
 
--- ── Hook into Mission:UpdateMission ───────────────────────────────────────
+-- ── Hook via BaseStart: wrap the instance's UpdateMission at mission start ──
+-- Each mission subclass overrides UpdateMission directly, so patching
+-- Mission.UpdateMission does nothing. Instead we intercept BaseStart
+-- (which IS the shared base) and wrap self's UpdateMission per-instance.
 
-local _orig_update = Mission.UpdateMission
-function Mission:UpdateMission(...)
-    -- call original
-    if _orig_update then _orig_update(self, ...) end
-    -- dump state for agent
-    pcall(dump_state)
-    -- execute any pending agent action
-    pcall(execute_action)
-end
-
--- Also hook BaseStart to clear stale files at mission start
 local _orig_base_start = Mission.BaseStart
 function Mission:BaseStart(...)
     if _orig_base_start then _orig_base_start(self, ...) end
-    delete_file(ACTION_FILE)
-    log("ITBcontrol mod loaded. Game dir: " .. WORKING_DIR)
+
+    -- Wrap this instance's UpdateMission
+    local _orig = self.UpdateMission
+    self.UpdateMission = function(s, ...)
+        if _orig then _orig(s, ...) end
+        pcall(dump_state)
+        pcall(execute_action)
+    end
+
+    delete_file(ACTION_FILE())
+    log("ITBcontrol hooked into mission: " .. tostring(self))
     pcall(dump_state)
 end
 

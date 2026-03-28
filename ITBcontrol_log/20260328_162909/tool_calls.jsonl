@@ -1,0 +1,5 @@
+{"ts": "2026-03-28T16:29:09.278744", "type": "tool_call", "tool": "find_game_window", "inputs": {}, "result": 8388937, "error": null}
+{"ts": "2026-03-28T16:29:09.279833", "type": "tool_call", "tool": "screenshot", "inputs": {"label": "before_session"}, "result": null, "error": "[Errno 2] No such file or directory: 'scrot'"}
+{"ts": "2026-03-28T16:29:09.281149", "type": "tool_call", "tool": "screenshot", "inputs": {"label": "turn_000_before"}, "result": null, "error": "[Errno 2] No such file or directory: 'scrot'"}
+{"ts": "2026-03-28T16:29:12.295898", "type": "tool_call", "tool": "llm_call", "inputs": {"model": "kimi-turbo", "turn": 0, "prompt_len": 431}, "result": null, "error": "Error code: 401 - {'error': {'message': 'Invalid Authentication', 'type': 'invalid_authentication_error'}}"}
+{"ts": "2026-03-28T16:29:13.097896", "type": "tool_call", "tool": "screenshot", "inputs": {"label": "turn_000_after"}, "result": null, "error": "[Errno 2] No such file or directory: 'scrot'"}
