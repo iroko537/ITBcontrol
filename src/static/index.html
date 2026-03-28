@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ITB Control — Battlefield Viewer</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --bg2: #16213e;
+  --bg3: #0f3460;
+  --accent: #e94560;
+  --text: #eee;
+  --text-dim: #888;
+  --green: #4ade80;
+  --red: #f87171;
+  --blue: #60a5fa;
+  --orange: #fb923c;
+  --cyan: #22d3ee;
+  --yellow: #facc15;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', 'Consolas', monospace;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Header */
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid #333;
+}
+#header h1 { font-size: 16px; color: var(--accent); letter-spacing: 2px; }
+#turn-info { font-size: 14px; color: var(--text-dim); }
+#turn-info span { color: var(--yellow); font-weight: bold; }
+
+/* Main layout */
+#main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Canvas area */
+#canvas-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+canvas {
+  background: #111;
+  border: 1px solid #333;
+  cursor: crosshair;
+}
+
+/* Sidebar */
+#sidebar {
+  width: 260px;
+  background: var(--bg2);
+  border-left: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 12px;
+  overflow-y: auto;
+}
+.panel { background: var(--bg); border: 1px solid #333; border-radius: 6px; padding: 10px; }
+.panel h3 { font-size: 12px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; letter-spacing: 1px; }
+.pawn-entry { font-size: 12px; padding: 4px 0; border-bottom: 1px solid #222; display: flex; justify-content: space-between; }
+.pawn-entry:last-child { border-bottom: none; }
+.team-player { color: var(--green); }
+.team-mech { color: var(--green); }
+.team-enemy { color: var(--red); }
+.hp-bar { display: inline-block; width: 50px; height: 6px; background: #333; border-radius: 3px; overflow: hidden; vertical-align: middle; }
+.hp-fill { height: 100%; border-radius: 3px; }
+
+#btn-end-turn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: background 0.15s;
+}
+#btn-end-turn:hover { background: #c73650; }
+
+#selected-info { font-size: 12px; min-height: 60px; }
+#selected-info .label { color: var(--text-dim); }
+
+#action-log {
+  font-size: 11px;
+  max-height: 120px;
+  overflow-y: auto;
+  color: var(--text-dim);
+}
+#action-log div { padding: 2px 0; border-bottom: 1px solid #1a1a1a; }
+
+/* Status bar */
+#status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 16px;
+  background: var(--bg2);
+  border-top: 1px solid #333;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.status-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.status-dot.ok { background: var(--green); }
+.status-dot.err { background: var(--red); }
+.status-dot.wait { background: var(--yellow); }
+
+/* Legend */
+#legend { display: flex; gap: 8px; flex-wrap: wrap; font-size: 10px; }
+#legend .item { display: flex; align-items: center; gap: 3px; }
+#legend .swatch { width: 12px; height: 12px; border-radius: 2px; border: 1px solid #555; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>⚔ ITB CONTROL</h1>
+  <div id="turn-info">Turn: <span id="turn-num">—</span></div>
+</div>
+
+<div id="main">
+  <div id="canvas-wrap">
+    <canvas id="board" width="560" height="560"></canvas>
+  </div>
+  <div id="sidebar">
+    <div class="panel" id="selected-info">
+      <h3>Selected</h3>
+      <div id="sel-detail">Click a pawn to select</div>
+    </div>
+    <button id="btn-end-turn">⏩ END TURN</button>
+    <div class="panel">
+      <h3>Pawns</h3>
+      <div id="pawn-list"></div>
+    </div>
+    <div class="panel">
+      <h3>Action Log</h3>
+      <div id="action-log"></div>
+    </div>
+    <div class="panel">
+      <h3>Legend</h3>
+      <div id="legend">
+        <div class="item"><div class="swatch" style="background:#3a3a3a"></div>Ground</div>
+        <div class="item"><div class="swatch" style="background:#4488cc"></div>Building</div>
+        <div class="item"><div class="swatch" style="background:#2266aa"></div>Water</div>
+        <div class="item"><div class="swatch" style="background:#666"></div>Mountain</div>
+        <div class="item"><div class="swatch" style="background:#2d5a1e"></div>Forest</div>
+        <div class="item"><div class="swatch" style="background:#c2a64e"></div>Sand</div>
+        <div class="item"><div class="swatch" style="background:#88ccee"></div>Ice</div>
+        <div class="item"><div class="swatch" style="background:#cc3300"></div>Lava</div>
+        <div class="item"><div class="swatch" style="background:#111"></div>Hole</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="status-bar">
+  <div><span class="status-dot wait" id="status-dot"></span><span id="status-text">Connecting...</span></div>
+  <div id="last-update">—</div>
+</div>
+
+<script>
+const TILE = 70;
+const BOARD_W = 8, BOARD_H = 8;
+const canvas = document.getElementById('board');
+const ctx = canvas.getContext('2d');
+
+// Terrain colors
+const TERRAIN_COLORS = {
+  0: '#3a3a3a', // ground
+  1: '#4488cc', // building
+  2: '#2266aa', // water
+  3: '#666666', // mountain
+  4: '#2d5a1e', // forest
+  5: '#c2a64e', // sand
+  6: '#88ccee', // ice
+  7: '#cc3300', // lava
+  8: '#111111', // hole
+};
+
+const TERRAIN_LABELS = {
+  0:'',1:'🏢',2:'🌊',3:'⛰',4:'🌲',5:'',6:'❄',7:'🔥',8:'⬛'
+};
+
+let state = null;
+let selectedPawn = null;
+let hoveredTile = null;
+let actionLog = [];
+
+function tileAt(x, y) {
+  if (!state || !state.tiles) return null;
+  return state.tiles.find(t => t.x === x && t.y === y);
+}
+
+function pawnAt(x, y) {
+  if (!state || !state.pawns) return null;
+  return state.pawns.find(p => p.x === x && p.y === y);
+}
+
+function buildingAt(x, y) {
+  if (!state || !state.buildings) return null;
+  return state.buildings.find(b => b.x === x && b.y === y);
+}
+
+function draw() {
+  const w = state ? (state.board_w || 8) : 8;
+  const h = state ? (state.board_h || 8) : 8;
+  canvas.width = w * TILE;
+  canvas.height = h * TILE;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Draw tiles
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const tile = tileAt(x, y);
+      const terrain = tile ? tile.terrain : 0;
+      const px = x * TILE, py = y * TILE;
+
+      // Base terrain
+      ctx.fillStyle = TERRAIN_COLORS[terrain] || '#3a3a3a';
+      ctx.fillRect(px, py, TILE, TILE);
+
+      // Grid lines
+      ctx.strokeStyle = '#222';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px, py, TILE, TILE);
+
+      // Hazard overlays
+      if (tile) {
+        if (tile.is_fire) {
+          ctx.fillStyle = 'rgba(251, 146, 60, 0.4)';
+          ctx.fillRect(px, py, TILE, TILE);
+        }
+        if (tile.is_acid) {
+          ctx.fillStyle = 'rgba(74, 222, 128, 0.35)';
+          ctx.fillRect(px, py, TILE, TILE);
+        }
+        if (tile.is_frozen) {
+          ctx.fillStyle = 'rgba(34, 211, 238, 0.35)';
+          ctx.fillRect(px, py, TILE, TILE);
+        }
+      }
+
+      // Building
+      const bld = buildingAt(x, y);
+      if (bld) {
+        ctx.fillStyle = bld.damaged ? '#fb923c' : '#60a5fa';
+        const m = 12;
+        ctx.fillRect(px + m, py + m, TILE - m*2, TILE - m*2);
+        ctx.strokeStyle = bld.damaged ? '#c2410c' : '#2563eb';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(px + m, py + m, TILE - m*2, TILE - m*2);
+        // Window dots
+        ctx.fillStyle = bld.damaged ? '#7c2d12' : '#1e40af';
+        ctx.fillRect(px+m+6, py+m+6, 4, 4);
+        ctx.fillRect(px+TILE-m-10, py+m+6, 4, 4);
+        ctx.fillRect(px+m+6, py+TILE-m-10, 4, 4);
+        ctx.fillRect(px+TILE-m-10, py+TILE-m-10, 4, 4);
+      }
+
+      // Terrain emoji
+      const lbl = TERRAIN_LABELS[terrain];
+      if (lbl && !bld) {
+        ctx.font = '18px serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(lbl, px + TILE/2, py + TILE/2);
+      }
+
+      // Coordinate label
+      ctx.font = '9px monospace';
+      ctx.fillStyle = '#555';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`${x},${y}`, px + 2, py + 2);
+    }
+  }
+
+  // Draw pawns
+  if (state && state.pawns) {
+    for (const p of state.pawns) {
+      const px = p.x * TILE + TILE/2;
+      const py = p.y * TILE + TILE/2;
+      const r = 20;
+
+      // Selection ring
+      if (selectedPawn && selectedPawn.id === p.id) {
+        ctx.beginPath();
+        ctx.arc(px, py, r + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = '#facc15';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      // Pawn body
+      const isEnemy = p.team === 3;
+      const color = isEnemy ? '#ef4444' : '#22c55e';
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = isEnemy ? '#991b1b' : '#166534';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Pawn icon/letter
+      ctx.font = 'bold 14px monospace';
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const label = p.name ? p.name.charAt(0) : (isEnemy ? 'E' : 'M');
+      ctx.fillText(label, px, py - 2);
+
+      // HP bar
+      const barW = 30, barH = 4;
+      const barX = px - barW/2, barY = py + r - 8;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(barX, barY, barW, barH);
+      const hpPct = p.max_health > 0 ? p.health / p.max_health : 0;
+      ctx.fillStyle = hpPct > 0.5 ? '#22c55e' : hpPct > 0.25 ? '#facc15' : '#ef4444';
+      ctx.fillRect(barX, barY, barW * hpPct, barH);
+    }
+  }
+
+  // Hover highlight
+  if (hoveredTile) {
+    const px = hoveredTile.x * TILE, py = hoveredTile.y * TILE;
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px + 1, py + 1, TILE - 2, TILE - 2);
+  }
+}
+
+// Mouse handling
+function getTileFromMouse(e) {
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - rect.left) / TILE);
+  const y = Math.floor((e.clientY - rect.top) / TILE);
+  const w = state ? (state.board_w || 8) : 8;
+  const h = state ? (state.board_h || 8) : 8;
+  if (x >= 0 && x < w && y >= 0 && y < h) return {x, y};
+  return null;
+}
+
+canvas.addEventListener('mousemove', (e) => {
+  hoveredTile = getTileFromMouse(e);
+  draw();
+});
+
+canvas.addEventListener('mouseleave', () => {
+  hoveredTile = null;
+  draw();
+});
+
+canvas.addEventListener('click', (e) => {
+  const t = getTileFromMouse(e);
+  if (!t) return;
+  const pawn = pawnAt(t.x, t.y);
+
+  if (pawn && (pawn.team === 1 || pawn.team === 2)) {
+    // Select friendly pawn
+    selectedPawn = pawn;
+    updateSelectedInfo();
+    draw();
+    return;
+  }
+
+  if (selectedPawn && !pawn) {
+    // Move selected pawn to empty tile
+    sendAction({
+      type: 'move',
+      from: [selectedPawn.x, selectedPawn.y],
+      to: [t.x, t.y]
+    });
+    selectedPawn = null;
+    updateSelectedInfo();
+    draw();
+    return;
+  }
+
+  // Click enemy or empty with no selection: deselect
+  selectedPawn = null;
+  updateSelectedInfo();
+  draw();
+});
+
+canvas.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  const t = getTileFromMouse(e);
+  if (!t || !selectedPawn) return;
+  sendAction({
+    type: 'attack',
+    pawn_id: selectedPawn.id,
+    skill: 0,
+    target: [t.x, t.y]
+  });
+});
+
+// Shift+click also attacks
+canvas.addEventListener('click', (e) => {
+  if (!e.shiftKey) return;
+  const t = getTileFromMouse(e);
+  if (!t || !selectedPawn) return;
+  e.stopPropagation();
+  sendAction({
+    type: 'attack',
+    pawn_id: selectedPawn.id,
+    skill: 0,
+    target: [t.x, t.y]
+  });
+}, true);
+
+// End turn
+document.getElementById('btn-end-turn').addEventListener('click', () => {
+  sendAction({type: 'end_turn'});
+});
+
+// Actions
+async function sendAction(action) {
+  try {
+    const res = await fetch('/api/action', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(action)
+    });
+    const data = await res.json();
+    logAction(action);
+  } catch (e) {
+    logAction({error: e.message});
+  }
+}
+
+function logAction(action) {
+  const el = document.getElementById('action-log');
+  const d = document.createElement('div');
+  const ts = new Date().toLocaleTimeString();
+  d.textContent = `[${ts}] ${JSON.stringify(action)}`;
+  el.prepend(d);
+  while (el.children.length > 50) el.removeChild(el.lastChild);
+}
+
+function updateSelectedInfo() {
+  const el = document.getElementById('sel-detail');
+  if (!selectedPawn) {
+    el.innerHTML = 'Click a pawn to select';
+    return;
+  }
+  const p = selectedPawn;
+  const teamName = p.team === 3 ? 'Enemy' : 'Player';
+  el.innerHTML = `
+    <div><span class="label">Name:</span> <b>${p.name || 'Unknown'}</b></div>
+    <div><span class="label">Team:</span> ${teamName} | <span class="label">ID:</span> ${p.id}</div>
+    <div><span class="label">HP:</span> ${p.health}/${p.max_health} | <span class="label">Move:</span> ${p.move_speed}</div>
+    <div><span class="label">Pos:</span> (${p.x}, ${p.y}) ${p.is_flying ? '✈ Flying' : ''}</div>
+    <div style="margin-top:4px;color:var(--text-dim);font-size:11px">Click tile to move · Right-click to attack</div>
+  `;
+}
+
+function updatePawnList() {
+  const el = document.getElementById('pawn-list');
+  if (!state || !state.pawns || state.pawns.length === 0) {
+    el.innerHTML = '<div style="color:#555;font-size:11px">No pawns</div>';
+    return;
+  }
+  el.innerHTML = state.pawns.map(p => {
+    const cls = p.team === 3 ? 'team-enemy' : 'team-player';
+    const hpPct = p.max_health > 0 ? (p.health / p.max_health * 100) : 0;
+    const hpColor = hpPct > 50 ? 'var(--green)' : hpPct > 25 ? 'var(--yellow)' : 'var(--red)';
+    return `<div class="pawn-entry">
+      <span class="${cls}">${p.name || 'Pawn'} (${p.x},${p.y})</span>
+      <span><span class="hp-bar"><span class="hp-fill" style="width:${hpPct}%;background:${hpColor}"></span></span> ${p.health}/${p.max_health}</span>
+    </div>`;
+  }).join('');
+}
+
+// Polling
+let lastTs = 0;
+let connected = false;
+
+async function poll() {
+  try {
+    const res = await fetch('/api/state');
+    const data = await res.json();
+    if (data.error && data.error === 'no state file') {
+      setStatus('wait', 'Waiting for game state file...');
+      state = null;
+    } else if (data.error) {
+      setStatus('err', 'Error: ' + data.error);
+    } else {
+      state = data;
+      if (data._ts !== lastTs) {
+        lastTs = data._ts;
+        document.getElementById('turn-num').textContent = state.turn || '—';
+        updatePawnList();
+        // Re-select pawn if still exists
+        if (selectedPawn && state.pawns) {
+          selectedPawn = state.pawns.find(p => p.id === selectedPawn.id) || null;
+          updateSelectedInfo();
+        }
+        draw();
+      }
+      setStatus('ok', 'Connected');
+      document.getElementById('last-update').textContent = 'Last: ' + new Date().toLocaleTimeString();
+    }
+  } catch (e) {
+    setStatus('err', 'Disconnected');
+  }
+}
+
+function setStatus(type, text) {
+  const dot = document.getElementById('status-dot');
+  dot.className = 'status-dot ' + type;
+  document.getElementById('status-text').textContent = text;
+}
+
+// Initial draw and start polling
+draw();
+setInterval(poll, 500);
+poll();
+</script>
+</body>
+</html>

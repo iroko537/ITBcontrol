@@ -137,10 +137,13 @@ local function dump_state()
             local pawn_list = Board:GetPawns(team)
             if pawn_list then
                 for i = 1, pawn_list:size() do
-                    local pawn = pawn_list:index(i)
-                    local pt   = pawn:GetSpace()
-                    local pd   = pawn_to_table(pawn, pt)
-                    if pd then state.pawns[#state.pawns+1] = pd end
+                    local pawn_id = pawn_list:index(i)
+                    local pawn = Board:GetPawn(pawn_id)
+                    if pawn then
+                        local pt   = pawn:GetSpace()
+                        local pd   = pawn_to_table(pawn, pt)
+                        if pd then state.pawns[#state.pawns+1] = pd end
+                    end
                 end
             end
         end
